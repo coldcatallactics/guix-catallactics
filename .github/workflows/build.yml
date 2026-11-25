@@ -176,15 +176,37 @@ jobs:
             done
           fi
           gh release view "$TAG" >/dev/null
-          for attempt in 1 2 3 4 5; do
-            if gh release upload "$TAG" --clobber "${nars[@]}"; then
-              break
+          asset_names() {
+            gh release view "$TAG" --json assets \
+              --jq '.assets[].name' 2>/dev/null || true
+          }
+          # Upload one asset at a time.  A multi-file `gh release upload' can
+          # leave a partial release when the uploads API returns a transient
+          # 500; per-file retries make progress and let us verify every asset.
+          for nar in "${nars[@]}"; do
+            name=$(basename "$nar")
+            for attempt in $(seq 1 10); do
+              if asset_names | grep -Fxq "$name"; then
+                break
+              fi
+              if gh release upload "$TAG" --clobber "$nar"; then
+                break
+              fi
+              echo "upload of $name failed (attempt $attempt), retrying" >&2
+              sleep 20
+            done
+            if ! asset_names | grep -Fxq "$name"; then
+              echo "::error::release asset $name is still missing after retries"
+              exit 1
             fi
-            echo "release upload failed (attempt $attempt), retrying" >&2
-            sleep 15
+            echo "uploaded $name"
           done
-          gh release view "$TAG" --json assets \
-            --jq '.assets | length' | grep -q .
+          expected=${#nars[@]}
+          actual=$(asset_names | wc -l)
+          if [ "$actual" -ne "$expected" ]; then
+            echo "::error::release has $actual assets, expected $expected"
+            exit 1
+          fi
 
       - name: Deploy narinfo mirror to gh-pages
         if: github.event_name != 'pull_request'
