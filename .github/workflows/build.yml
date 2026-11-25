@@ -48,10 +48,12 @@ jobs:
       - name: Secret guard
         run: ./.github/scripts/secret-guard.sh check
 
-      # `guix git authenticate' looks for origin/keyring by default; a normal
-      # checkout only fetches the current branch.
+      # `guix git authenticate' looks for a local `keyring' branch; a normal
+      # checkout only fetches the current branch.  Keep origin/keyring too.
       - name: Fetch keyring branch
-        run: git fetch origin +refs/heads/keyring:refs/remotes/origin/keyring
+        run: |
+          git fetch origin +refs/heads/keyring:refs/remotes/origin/keyring
+          git branch --force keyring origin/keyring
 
       # A unique tag per run means old narinfos can never point at an asset
       # that a later run overwrote.  GITHUB_RUN_ATTEMPT keeps reruns distinct.
