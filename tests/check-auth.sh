@@ -102,6 +102,9 @@ if [ -z "$auth_signer" ]; then
 fi
 
 if [ -z "$auth_commit" ] || [ -z "$auth_signer" ]; then
+  if [ "${REQUIRE_AUTH:-0}" = 1 ]; then
+    fail "introduction not configured; set GUIX_AUTH_COMMIT and GUIX_AUTH_SIGNER"
+  fi
   echo "==> skipped guix git authenticate (no introduction configured)"
   echo "    set GUIX_AUTH_COMMIT and GUIX_AUTH_SIGNER, or add"
   echo "    [guix \"authentication\"] commit/signer to .git/config"

@@ -48,6 +48,11 @@ jobs:
       - name: Secret guard
         run: ./.github/scripts/secret-guard.sh check
 
+      # `guix git authenticate' looks for origin/keyring by default; a normal
+      # checkout only fetches the current branch.
+      - name: Fetch keyring branch
+        run: git fetch origin +refs/heads/keyring:refs/remotes/origin/keyring
+
       # A unique tag per run means old narinfos can never point at an asset
       # that a later run overwrote.  GITHUB_RUN_ATTEMPT keeps reruns distinct.
       - name: Compute substitute release tag
@@ -109,6 +114,9 @@ jobs:
         env:
           GUIX_AUTH_COMMIT: ${{ vars.GUIX_AUTH_COMMIT }}
           GUIX_AUTH_SIGNER: ${{ vars.GUIX_AUTH_SIGNER }}
+          REQUIRE_AUTH: ${{ github.event_name != 'pull_request' && '1' || '0' }}
+          AUTH_STRICT: ${{ github.event_name != 'pull_request' && '1' || '0' }}
+          AUTH_SOFT: ${{ github.event_name == 'pull_request' && '1' || '0' }}
         run: ./tests/check-auth.sh
 
       - name: Static checks (channel shape, style, derivations)

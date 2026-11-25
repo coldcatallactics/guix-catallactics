@@ -57,9 +57,7 @@ dependency, so only this entry is needed:
         (name 'catallactics)
         (url "https://github.com/coldcatallactics/guix-catallactics")
         (branch "main")
-        ;; Fill these in after running scripts/init-channel-auth.sh and making
-        ;; the signed introduction commit.  Until then, omit the introduction
-        ;; and pin the commit you trust.
+        ;; Signed introduction commit for the channel key.
         (introduction
          (make-channel-introduction
           "7f51994faac715329be538f062f78c103d6aff5b"

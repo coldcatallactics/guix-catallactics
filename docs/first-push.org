@@ -1,7 +1,6 @@
 #+TITLE: First push checklist
 
-These steps are one-time.  The working tree is currently uncommitted on
-purpose: the first commit must be signed.
+These steps are one-time.  The first commit must be signed.
 
 * 1. Channel signing key and introduction
 
@@ -24,7 +23,6 @@ git switch --orphan keyring
 cp .git/channel-keyring/<FINGERPRINT>.key .
 git add <FINGERPRINT>.key
 git commit -S -m "keyring: add channel signing key"
-git push -u origin keyring
 git switch main
 #+end_src
 
@@ -36,6 +34,7 @@ GitHub web editor or web merge on =main=.
 #+begin_src sh
 gh repo create coldcatallactics/guix-catallactics \
   --public --source=. --remote=origin --push
+git push -u origin keyring
 #+end_src
 
 Set the repository variables used by CI:
@@ -70,8 +69,18 @@ Do not reuse the host daemon's key, and never commit the private half.
 
 * 4. GitHub Pages
 
-Enable GitHub Pages from the =gh-pages= branch (root).  The workflow creates a
-unique =substitutes-...= GitHub Release for the nar assets using the automatic
+Create the =gh-pages= branch before enabling Pages, because Pages cannot be
+enabled from a branch that does not exist yet:
+
+#+begin_src sh
+git switch --orphan gh-pages
+git commit --allow-empty -S -m "gh-pages: initialize"
+git push -u origin gh-pages
+git switch main
+#+end_src
+
+Enable Pages from =gh-pages= (root).  The workflow creates a unique
+=substitutes-...= GitHub Release for the nar assets using the automatic
 =GITHUB_TOKEN=; there are no object-store secrets to configure.
 
 * 5. First CI run

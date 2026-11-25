@@ -39,6 +39,8 @@ fpr=$(gpg --list-keys --with-colons "$email" \
 
 echo "==> fingerprint: $fpr"
 echo "$fpr" > .git/channel-fingerprint
+# Make bare `git commit -S' use the channel key, not the user's default.
+git config --local user.signingkey "$fpr"
 
 cat > .guix-authorizations <<EOF
 (authorizations

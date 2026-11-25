@@ -70,7 +70,7 @@ fi
 
 # --- 2. the Pages metadata endpoint is alive --------------------------------
 info=""
-for _ in $(seq 1 60); do
+for _ in $(seq 1 180); do
   if info=$(curl -sf "$MIRROR/nix-cache-info" 2>/dev/null); then break; fi
   sleep 2
 done
@@ -83,6 +83,10 @@ mirror_pubkey=$(curl -sf "$MIRROR/pubkey") ||
   fail "$MIRROR/pubkey is missing"
 grep -q 'public-key' <<<"$mirror_pubkey" ||
   fail "$MIRROR/pubkey is not a Guix public key"
+# Authorize the key that Pages actually publishes, not merely a local copy.
+if [ "$(printf '%s\n' "$mirror_pubkey")" != "$(cat .guix-substitutes.pub)" ]; then
+  fail "$MIRROR/pubkey differs from .guix-substitutes.pub"
+fi
 
 # --- 3. find the package names this channel defines -------------------------
 shopt -s nullglob
@@ -114,15 +118,15 @@ for pkg in $candidates; do
 
   # The package's own output must not be substitutable upstream.  Its
   # dependencies may download from the official farms; that is fine.
-  if grep -E "^ +/gnu/store/[0-9a-z]+-$pkg-[0-9]" <<<"$dry" | grep -qv '\.drv$'; then
+  if grep -E "^[[:space:]]*/gnu/store/[0-9a-z]+-$pkg-[0-9]" <<<"$dry" | grep -qv '\.drv$'; then
     fail "$pkg already has an upstream substitute; this test would prove nothing"
   fi
 
-  drv=$(grep -E -- "/gnu/store/[0-9a-z]+-$pkg-[0-9][^ ]*\.drv$" <<<"$dry" \
-    | head -n1 | sed 's/^ *//' || true)
+  # Ask Guix for the package derivation directly.  Parsing the dry-run output
+  # is fragile: xenolith also prints an `xenolith-...-checkout.drv' first.
+  drv=$(guix build -L . -d "$pkg" 2>/dev/null | head -n1 || true)
   if [ -z "$drv" ]; then
-    echo "==> skip $pkg: dry run named no derivation"
-    sed 's/^/    /' <<<"$dry" | head -n 20
+    echo "==> skip $pkg: guix build -d named no derivation"
     continue
   fi
 
@@ -138,7 +142,7 @@ for pkg in $candidates; do
   # Pages deployments can take a minute to become visible even after the
   # action returns; retry a 404 before declaring the item absent.
   narinfo=""
-  for _ in $(seq 1 24); do
+  for _ in $(seq 1 60); do
     if narinfo=$(curl -sf "$MIRROR/$hash.narinfo" 2>/dev/null); then
       break
     fi
@@ -168,14 +172,20 @@ for pkg in $candidates; do
   [ "$compression" = gzip ] || fail "$pkg: expected gzip compression, got '$compression'"
 
   # A HEAD request proves the external object is public and present without
-  # downloading hundreds of megabytes just to discard them.
-  curl -fsSIL "$url" >/dev/null ||
+  # downloading hundreds of megabytes just to discard them.  Release-asset
+  # URLs redirect and can take a moment to become visible.
+  reachable=0
+  for _ in $(seq 1 12); do
+    if curl -fsSIL "$url" >/dev/null 2>&1; then reachable=1; break; fi
+    sleep 5
+  done
+  [ "$reachable" = 1 ] ||
     fail "$pkg: nar URL is not reachable: $url"
   echo "    nar: $url"
 
   # With the mirror authorized, the same output must flip to a download.
   dry_mirror="$(guix build -L . --dry-run --substitute-urls="$URLS" "$pkg" 2>&1 || true)"
-  if ! grep -E "^ +/gnu/store/[0-9a-z]+-$pkg-[0-9]" <<<"$dry_mirror" | grep -qv '\.drv$'; then
+  if ! grep -E "^[[:space:]]*/gnu/store/[0-9a-z]+-$pkg-[0-9]" <<<"$dry_mirror" | grep -qv '\.drv$'; then
     echo "$dry_mirror" >&2
     fail "$pkg: mirror does not substitute the package"
   fi
@@ -207,7 +217,7 @@ for line in "${chosen[@]}"; do
     fail "$pkg failed to install"
   fi
   grep -qiE 'substitut|downloading from' "$log" ||
-    echo "warning: install log did not mention substitution" >&2
+    fail "$pkg install did not substitute (the mirror may be unusable)"
   [ -e "$out" ] || fail "$pkg: expected store path $out is missing after install"
 
   smoke="tests/smoke/$pkg.sh"

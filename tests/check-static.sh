@@ -40,6 +40,24 @@ else
   echo "warning: .guix-channel does not mention nonguix" >&2
 fi
 
+# A declared dependency without an introduction is pulled unauthenticated.
+echo "==> channel dependencies have introductions"
+if ! guix repl -- >"$tmp/deps.log" 2>&1 <<'EOF'
+(use-modules (guix channels))
+(define read-meta (@@ (guix channels) read-channel-metadata))
+(define deps (@@ (guix channels) channel-metadata-dependencies))
+(call-with-input-file ".guix-channel"
+  (lambda (port)
+    (exit (if (every (lambda (channel)
+                       (channel-introduction channel))
+                     (deps (read-meta port)))
+              0 1))))
+EOF
+then
+  cat "$tmp/deps.log" >&2
+  fail "a channel dependency has no introduction"
+fi
+
 # --- module shape -----------------------------------------------------------
 # `guix pull' compiles every .scm file under the channel's directory (or under
 # the repository root when .guix-channel declares no (directory ...)).  A
