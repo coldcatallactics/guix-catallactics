@@ -195,7 +195,8 @@ for pkg in $candidates; do
   fi
 
   nar_size=$(sed -n 's/^NarSize:[[:space:]]*//p' <<<"$narinfo" | head -n1)
-  printf '%s\t%s\t%s\n' "${nar_size:-0}" "$pkg" "$out" >> "$work/usable"
+  nar_name=$(basename "${url%%\?*}")
+  printf '%s\t%s\t%s\t%s\n' "${nar_size:-0}" "$pkg" "$out" "$nar_name" >> "$work/usable"
 done
 
 # Smallest first: installing one package is the point, not downloading all of
@@ -210,17 +211,24 @@ trap 'rm -rf "$work" "$profile_dir"' EXIT
 profile="$profile_dir/profile"
 
 for line in "${chosen[@]}"; do
-  IFS=$'\t' read -r _ pkg out <<<"$line"
+  IFS=$'\t' read -r _ pkg out nar_name <<<"$line"
   echo "==> installing $pkg from the mirror"
+  [ ! -e "$out" ] ||
+    fail "$pkg: $out already exists before install; a fresh runner is required"
   log="$work/install-$pkg.log"
+  # Verbosity 2 asks Guix to print substitute download URLs.  At the default
+  # verbosity the daemon's extended build trace suppresses them, so a log
+  # grep would fail even when the substitute was used.
   if ! GUIX_PACKAGE_PATH="$PWD" \
        guix package -p "$profile" --install "$pkg" \
-         --substitute-urls="$URLS" >"$log" 2>&1; then
+         --substitute-urls="$URLS" --verbosity=2 >"$log" 2>&1; then
     cat "$log" >&2
     fail "$pkg failed to install"
   fi
-  grep -qiE 'substitut|downloading from' "$log" ||
-    fail "$pkg install did not substitute (the mirror may be unusable)"
+  if ! grep -Fq "$nar_name" "$log"; then
+    cat "$log" >&2
+    fail "$pkg install did not download $nar_name (the mirror may be unusable)"
+  fi
   [ -e "$out" ] || fail "$pkg: expected store path $out is missing after install"
 
   smoke="tests/smoke/$pkg.sh"
