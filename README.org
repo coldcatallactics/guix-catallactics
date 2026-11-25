@@ -125,8 +125,10 @@ this repository. The packages are personal, not audited by GNU Guix.
 * Authentication
 
 All commits on =main= are signed. The channel introduction is the signed
-commit that first added =.guix-authorizations=; the README will record its hash
-and fingerprint once the key is created.
+commit that first added =.guix-authorizations=:
+
+- introduction commit: =7f51994faac715329be538f062f78c103d6aff5b=
+- channel key fingerprint: =8F4CFF0C4E3B4D087A029F6435B7E555ADED2A4F=
 
 - =scripts/init-channel-auth.sh= generates a dedicated OpenPGP key, writes
   =.guix-authorizations=, and prints the orphan =keyring= branch instructions.
