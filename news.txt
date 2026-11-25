@@ -1,0 +1,7 @@
+;;; news.txt --- channel news, read by `guix pull'.
+;;;
+;;; Entries are keyed to a commit; because a commit cannot name its own hash,
+;;; add the entry in a FOLLOWING commit that cites the change's hash.
+
+(channel-news
+ (version 0))

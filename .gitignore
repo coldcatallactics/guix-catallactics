@@ -1,0 +1,25 @@
+# Guile byte-compiled files
+*.go
+*.scm.go
+
+# `guix build' result symlinks
+result
+result-*
+
+# Vendor archives and substitute artefacts
+*.deb
+.substitute-cache/
+.substitute-site/
+.substitute-nars/
+built-paths.txt
+.build-status
+
+# Python bytecode from helper scripts
+__pycache__/
+*.pyc
+
+# Never commit signing material
+*.sec
+signing-key.sec
+signing-key.pub
+.guix-signing-key

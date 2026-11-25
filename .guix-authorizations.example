@@ -1,0 +1,14 @@
+;; Example .guix-authorizations.
+;;
+;; Generate your channel key and the real file with:
+;;
+;;   ./scripts/init-channel-auth.sh
+;;
+;; The real file must be introduced in a SIGNED commit, and the matching
+;; public key must be exported to the orphan `keyring' branch.
+
+(authorizations
+ (version 0)
+
+ (("FINGERPRINT-GOES-HERE"
+   (name "coldcatallactics"))))

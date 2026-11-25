@@ -1,0 +1,50 @@
+;;; channels-lock --- exact channel revisions used by CI.
+;; -*- scheme -*-
+;;
+;; This file is a plain channel list, not a Guile module.  It is passed to
+;; `guix pull -C tests/channels-lock', which loads it in an isolated
+;; environment where `define-module' is unavailable.  Keep it a bare list.
+;;
+;; The file has NO .scm extension on purpose.  `guix build -L .' scans the
+;; repository root for Scheme modules, and a bare channel list named
+;; channels-lock.scm there made Guile try to load it as a module ("channel:
+;; unbound variable") and print that noise in every build log.  `guix pull -C'
+;; accepts an extensionless file, so this keeps the lock out of the module
+;; scan while remaining directly usable in CI.
+;;
+;; CI would otherwise pull the tips of Guix and Nonguix on every run.  Both
+;; move daily, so a build that is green today can be red tomorrow without a
+;; change to this repository.  Pinning both channels makes a failure
+;; reproducible and makes an upstream regression stay red until the pin is
+;; deliberately advanced.
+;;
+;; The (introduction ...) forms are trust anchors, not version numbers.  They
+;; must match .guix-channel and must never change when the commits below are
+;; bumped.  Update only the (commit ...) strings:
+;;
+;;   ./tests/update-channels-lock.sh
+;;
+;; The Guix commit is the one this channel was last developed and tested
+;; against; the Nonguix commit is the matching Nonguix master revision.
+;; A Guix bump can change package definitions, so review the resulting diff
+;; before committing it.
+
+(list (channel
+        (name 'guix)
+        (url "https://git.guix.gnu.org/guix.git")
+        (commit "e2a85a92acd920881f6b3e883171652c9e1603f8")
+        (introduction
+         (make-channel-introduction
+          "9edb3f66fd807b096b48283debdcddccfea34bad"
+          (openpgp-fingerprint
+           "BBB0 2DDF 2CEA F6A8 0D1D  E643 A2A0 6DF2 A33A 54FA"))))
+
+      (channel
+        (name 'nonguix)
+        (url "https://gitlab.com/nonguix/nonguix")
+        (commit "ee118ce90d55c9d80af11295f28d6f971369161c")
+        (introduction
+         (make-channel-introduction
+          "897c1a470da759236cc11798f4e0a5f7d4d59fbc"
+          (openpgp-fingerprint
+           "2A39 3FFF 68F4 EF7A 3D29  12AF 6F51 20A0 22FB B2D5")))))

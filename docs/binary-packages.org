@@ -1,0 +1,44 @@
+#+TITLE: Why some packages are -bin
+
+The `-bin` suffix is deliberate.  These packages install a hash-pinned
+upstream release artifact, not a local source build.
+
+* learnharness-bin
+
+LearnHarness is an Electron 44 shell around a Next 16 standalone server.  A
+source package would need:
+
+- Electron 44 (Guix has no Electron; Nonguix currently stops at 41),
+- Node 26 (Guix has it),
+- the Next build pipeline and a lockfile with more than a thousand npm
+  packages,
+- electron-builder's Linux assembly.
+
+Guix forbids bundled `node_modules`, so each npm dependency would have to be
+packaged.  When Nonguix carries Electron 44 and the npm tree becomes
+tractable, this can become `learnharness` and `learnharness-bin` can be
+deprecated.
+
+* opencode-bin
+
+opencode is a Bun-compiled TypeScript application.  Guix has no Bun package
+and the release bundles a large npm tree; a source build is not practical.
+Nonguix has an open merge request for the same upstream release.
+
+* autolith-bin
+
+See =docs/autolith-source.org=: the blocker is the SBCL/Quicklisp closure,
+not the license.
+
+* Policy
+
+A vendor package must still be:
+
+- hash-pinned by `origin`,
+- installed from the upstream release the project actually publishes,
+- accompanied by accurate license metadata and the upstream license text,
+- free of fleet-specific secrets or machine paths,
+- smoke-tested in CI.
+
+If a real source build becomes practical, it replaces the `-bin` package; the
+old name is deprecated rather than silently changed.

@@ -1,0 +1,220 @@
+name: build
+
+# Build every package in the catallactics channel, smoke-test it, and publish
+# a substitute mirror without a separate object-storage account:
+#
+#   * GitHub Pages (gh-pages) serves nix-cache-info, <hash>.narinfo and pubkey.
+#   * GitHub Releases serves the nar archives.  Pages has a hard 100 MB
+#     per-file limit and every package here is larger than that; release
+#     assets allow up to 2 GiB each and have no total-size/bandwidth limit.
+#
+# Each publish run creates a unique release tag.  The narinfo URL fields point
+# at that tag; URL/Compression/FileSize are outside the signed normative part
+# of a narinfo, so rewriting them does not invalidate the signature.  Old
+# releases are kept so narinfos cached by clients keep working.
+#
+# Builds run for pushes to main, pull requests and manual dispatches.
+# Publishing and the consumer-side substitute test only run for non-PR events,
+# and only after the build job succeeds.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write        # create releases and push the gh-pages branch
+  pages: write           # Pages deployment metadata
+
+jobs:
+  packages:
+    name: guix build and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    outputs:
+      nar_base_url: ${{ steps.release.outputs.nar_base_url }}
+      release_tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history is needed if channel authentication is configured.
+          fetch-depth: 0
+
+      - name: Secret guard
+        run: ./.github/scripts/secret-guard.sh check
+
+      # A unique tag per run means old narinfos can never point at an asset
+      # that a later run overwrote.  GITHUB_RUN_ATTEMPT keeps reruns distinct.
+      - name: Compute substitute release tag
+        id: release
+        if: github.event_name != 'pull_request'
+        run: |
+          tag="substitutes-$(date -u +%Y%m%d)-${GITHUB_SHA::12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}"
+          {
+            echo "tag=$tag"
+            echo "nar_base_url=$url"
+          } >> "$GITHUB_OUTPUT"
+          echo "NAR_BASE_URL=$url" >> "$GITHUB_ENV"
+          echo "release tag: $tag"
+          echo "nar base:    $url"
+
+      # Download cache only: /gnu/store must not be restored from a cache,
+      # because the store database would disagree with the restored files.
+      - name: Guix download cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/guix
+          key: guix-cache-${{ github.sha }}
+          restore-keys: |
+            guix-cache-${{ github.ref }}-
+            guix-cache-
+
+      # brix-action fetches the Guix binary from its GitHub release instead of
+      # the Guix build farm, so a build-farm outage cannot block this channel.
+      # pullAfterInstall is off: the exact commits in tests/channels-lock
+      # decide what the daemon runs, not the moving tips of Guix/Nonguix.
+      - name: Install Guix
+        uses: brix-os/brix-action@v1
+        with:
+          pullAfterInstall: false
+          channels: |-
+            (cons
+             (channel
+              (name 'nonguix)
+              (url "https://gitlab.com/nonguix/nonguix")
+              (introduction
+               (make-channel-introduction
+                "897c1a470da759236cc11798f4e0a5f7d4d59fbc"
+                (openpgp-fingerprint
+                 "2A39 3FFF 68F4 EF7A 3D29  12AF 6F51 20A0 22FB B2D5"))))
+             %default-channels)
+
+      - name: Pin channels to tests/channels-lock
+        run: |
+          guix pull --fallback --allow-downgrades -C tests/channels-lock
+          guix describe
+
+      # If the repository has a .guix-authorizations file and the introduction
+      # is configured (GUIX_AUTH_COMMIT/GUIX_AUTH_SIGNER repository variables),
+      # this authenticates the checkout.  Otherwise it reports what is missing
+      # and exits successfully: a new channel should not be blocked before its
+      # first signed commit exists.
+      - name: Channel authentication
+        env:
+          GUIX_AUTH_COMMIT: ${{ vars.GUIX_AUTH_COMMIT }}
+          GUIX_AUTH_SIGNER: ${{ vars.GUIX_AUTH_SIGNER }}
+        run: ./tests/check-auth.sh
+
+      - name: Static checks (channel shape, style, derivations)
+        run: ./tests/check-static.sh
+
+      - name: guix lint (advisory)
+        continue-on-error: true
+        run: ./tests/lint.sh
+
+      - name: Build and smoke test
+        env:
+          GUIX_BUILT_PATHS: ${{ github.workspace }}/built-paths.txt
+        run: |
+          touch "$GUIX_BUILT_PATHS"
+          ./tests/build-all.sh
+
+      # Publishing is intentionally after a successful build.  A failed build
+      # stops the job here, so neither the Pages metadata nor the release
+      # assets are replaced with a partial mirror.
+      - name: Publish substitutes (bake, rewrite narinfo URLs)
+        if: github.event_name != 'pull_request'
+        env:
+          GUIX_SIGNING_KEY: ${{ secrets.GUIX_SIGNING_KEY }}
+          GUIX_BUILT_PATHS: ${{ github.workspace }}/built-paths.txt
+          NAR_BASE_URL: ${{ steps.release.outputs.nar_base_url }}
+        run: ./tests/publish-substitutes.sh
+
+      # Create the release and upload the nars before the Pages metadata is
+      # replaced, so a client never sees a narinfo whose URL is not live yet.
+      - name: Publish nars to GitHub Releases
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          nars=(.substitute-nars/*.nar)
+          [ ${#nars[@]} -gt 0 ] || {
+            echo "::error::no nar files were staged"
+            exit 1
+          }
+          gh release create "$TAG" \
+            --title "Guix substitutes $TAG" \
+            --notes "Signed substitute nars for the catallactics channel." \
+            --prerelease
+          gh release upload "$TAG" "${nars[@]}"
+
+      - name: Deploy narinfo mirror to gh-pages
+        if: github.event_name != 'pull_request'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: ./.substitute-site
+          # The payload is metadata, not a Jekyll site.
+          enable_jekyll: false
+          # Replace the branch each run rather than accumulating narinfo
+          # history; the nars live in the release.
+          force_orphan: true
+
+  # Consumer-side proof on a fresh runner: authorize the public signing key,
+  # show the packages are not available from upstream substitutes, verify the
+  # narinfo points at the release assets, then install one package from the
+  # Pages + Releases mirror and run its smoke test.
+  substitutes:
+    name: substitute install from Pages + Releases
+    needs: packages
+    if: github.event_name != 'pull_request' && needs.packages.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guix download cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/guix
+          key: guix-substitutes-${{ github.sha }}
+          restore-keys: |
+            guix-substitutes-${{ github.ref }}-
+            guix-substitutes-
+
+      - name: Install Guix
+        uses: brix-os/brix-action@v1
+        with:
+          pullAfterInstall: false
+          channels: |-
+            (cons
+             (channel
+              (name 'nonguix)
+              (url "https://gitlab.com/nonguix/nonguix")
+              (introduction
+               (make-channel-introduction
+                "897c1a470da759236cc11798f4e0a5f7d4d59fbc"
+                (openpgp-fingerprint
+                 "2A39 3FFF 68F4 EF7A 3D29  12AF 6F51 20A0 22FB B2D5"))))
+             %default-channels)
+
+      - name: Pin channels to tests/channels-lock
+        run: |
+          guix pull --fallback --allow-downgrades -C tests/channels-lock
+          guix describe
+
+      - name: Test substitute install from the mirror
+        env:
+          MIRROR_URL: https://coldcatallactics.github.io/guix-catallactics
+          NAR_BASE_URL: ${{ needs.packages.outputs.nar_base_url }}
+        run: ./tests/check-substitutes.sh

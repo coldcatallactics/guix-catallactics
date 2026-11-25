@@ -1,0 +1,75 @@
+#+TITLE: Keys and CI setup
+
+Two independent keys are involved. Do not reuse one for the other.
+
+* 1. Channel authentication key (OpenPGP)
+
+Run:
+
+#+begin_src sh
+./scripts/init-channel-auth.sh
+#+end_src
+
+It creates a dedicated ed25519 signing key, writes =.guix-authorizations=, and
+exports the public key under =.git/channel-keyring/=.
+
+Then:
+
+1. Commit =.guix-authorizations= with =git commit -S=. That commit is the
+   channel introduction. Record its hash and the fingerprint in =README.org=.
+2. Create the orphan =keyring= branch and add =<FINGERPRINT>.key= there, as the
+   script prints.
+3. Use =git commit -S= for every later commit on =main=. Verify with:
+   #+begin_src sh
+   guix git authenticate <INTRO_COMMIT> <FINGERPRINT>
+   #+end_src
+4. Never use the GitHub web editor or web merge on =main=.
+
+The GPG private key stays in your GnuPG home; it is not a CI secret.
+
+* 2. Substitute signing key (Guix Ed25519)
+
+Generate a dedicated key on a disposable machine/VM/container whose =/etc/guix=
+does not already contain a key pair:
+
+#+begin_src sh
+sudo guix archive --generate-key
+#+end_src
+
+This writes =/etc/guix/signing-key.pub= and =/etc/guix/signing-key.sec=.
+Do not use the host's existing daemon key.
+
+- Copy the public key to the repository as =.guix-substitutes.pub= and commit
+  it.
+- Store the private key text as the GitHub Actions secret =GUIX_SIGNING_KEY=.
+  Do not commit it, print it, or paste it into logs.
+- The CI workflow passes it to =tests/publish-substitutes.sh=; =guix publish=
+  signs the narinfos.
+
+To rotate the key later: generate a new pair, replace the public file, update
+the secret, republish, and tell users to re-authorize the new key. Old keys
+remain authorized on users' machines until removed.
+
+* 3. GitHub Pages and Releases
+
+- The workflow deploys the small metadata (=nix-cache-info=, =.narinfo= files,
+  =pubkey=) to the =gh-pages= branch.
+- Enable Pages with "Deploy from a branch", branch =gh-pages=, folder =/=.
+- Metadata URL: =https://coldcatallactics.github.io/guix-catallactics=.
+- The nar archives are release assets.  The workflow creates a unique
+  =substitutes-...= release with the automatic =GITHUB_TOKEN= and rewrites the
+  narinfo URLs to that release.  There are no other object-store secrets.
+- Keep the workflow token's =contents: write= permission; it is needed for both
+  the release and =gh-pages=.
+
+* 4. CI channels pin
+
+=tests/channels-lock= pins Guix and Nonguix. Bump it deliberately:
+
+#+begin_src sh
+./tests/update-channels-lock.sh
+git diff tests/channels-lock
+git commit -S -m "ci: update channel pins"
+#+end_src
+
+Run the full workflow once with =workflow_dispatch= after changing the lock.

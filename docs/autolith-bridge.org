@@ -1,0 +1,191 @@
+#+TITLE: autolith-bridge: blocked on Guix's Swift toolchain
+#+SUBTITLE: Why the catallactics channel ships without it
+
+* Summary
+
+The channel does not define =autolith-bridge=.  Upstream is a normal
+Apache-2.0 Swift package, but Guix's =swift= 6.2 package is a compiler-only
+installation: it provides =swiftc= and the core standard library, but no
+Foundation, FoundationNetworking, Swift =Dispatch= module, =_Concurrency=,
+=XCTest=, =swift-driver= or SwiftPM (=swift-build= / =swift-package=).  The
+bridge imports Foundation in nearly every source file and uses async/await,
+so a package definition would fail at the first compile.  The module
+[[file:../catallactics/autolith-bridge.scm][=(catallactics autolith-bridge)=]] therefore exports a blocker note and
+defines no package.  A placeholder would be worse than an honest absence.
+
+* Upstream
+
+- URL: https://github.com/chakanysystems/autolith-remote
+- Commit: =b0662e0baf3fda50740ec7f5cbd0e6203662950f= (tag =0.1.3=,
+  2026-09-20)
+- License: Apache-2.0 (see =LICENSE= in the checkout)
+- Source hash for a Guix =git-fetch= origin:
+  =15xch3mdmiz5vpaa48f6rqxw106nrvq97x27h5rnxqh04sfkp9nj= (=guix hash -xr=)
+- Linux target: the =autolith-bridge= executable from the =AutolithBridge=
+  target.  It is built from =Package.swift=, =Package.resolved=, =Sources/=,
+  =Shared/=, =Tests/= and =LICENSE=.  The iOS app under =App/= is not part of
+  this target.
+- Resource: =Sources/AutolithBridge/Resources/Request.lisp= becomes
+  =AutolithCompanion_AutolithBridge.resources= on Linux.
+
+The SwiftPM dependency set (from =Package.resolved=) is:
+
+| Dependency        | Version | Revision                                   | Guix git-fetch sha256 (base32)              |
+|-------------------+---------+--------------------------------------------+---------------------------------------------|
+| swift-nio         | 2.76.1  | =914081701062b11e3bb9e21accc379822621995e= | =1w7simxkr9xp4y3y48zv0z8jvqmykqgc75ds414hp6m1wja9ns7x= |
+| swift-crypto      | 3.10.0  | =ff0f781cf7c6a22d52957e50b104f5768b50c779= | =0qljngw9vklrcqbgzw1x2lifiagwgl8l90w717lvkf1q3f7qxxix= |
+| swift-atomics     | 1.2.0   | =cd142fd2f64be2100422d658e7411e39489da985= | =0rzq9klikwm4jv9y0wqb2wajlv6nlcyjgg5bvf35209h6l2gz38y= |
+| swift-collections | 1.1.4   | =671108c96644956dddcd89dd59c203dcdb36cec7= | =0g8jpw5fxh0f7sdch7snf2kpw0lwyvvc2h5aac068327s0izf04a= |
+| swift-system      | 1.4.0   | =c8a44d836fe7913603e246acab7c528c2e780168= | =1hdqvnr3spq8arxh00f72ac18pzkjmp5rxm6r7dnncx4w4n5i1r5= |
+| swift-asn1        | 1.3.0   | =7faebca1ea4f9aaf0cda1cef7c43aecd2311ddf6= | =1nkrgaka8ara1kbqlr1ggybvbxfv0m8xsbpvgbkz4ynpjf5c6spm= |
+
+The hashes in the last column are Guix checkout hashes computed with
+=guix hash -xr= on the pinned revisions; the upstream Nix recipe records its
+own SRI hashes in =nix/dependencies/default.nix=.
+
+* The toolchain gap
+
+Verified with Guix at commit
+=e2a85a92acd920881f6b3e883171652c9e1603f8= (Nonguix at
+=ee118ce90d55c9d80af11295f28d6f971369161c=), using the substitute for
+=swift@6.2= from =(gnu packages swift)=:
+
+#+begin_src sh
+$ guix build swift
+/gnu/store/mcngddjckzv3ndvqwlkrmlr4z3v8gqp4-swift-6.2
+#+end_src
+
+The installed Swift modules under =lib/swift/linux= are only:
+
+#+begin_src text
+Swift.swiftmodule
+SwiftOnoneSupport.swiftmodule
+Glibc.swiftmodule
+Cxx.swiftmodule
+CxxStdlib.swiftmodule
+_Builtin_float.swiftmodule
+#+end_src
+
+There is no =Foundation.swiftmodule=, =FoundationNetworking.swiftmodule=,
+=Dispatch.swiftmodule=, =_Concurrency.swiftmodule=,
+=_StringProcessing.swiftmodule= or =XCTest.swiftmodule=.  The package does
+install =lib/swift/linux/libdispatch.so=, but not the Swift =Dispatch= module;
+Guix's separate =libdispatch@6.4.0= package is also the C library only.
+
+=bin/= has =swiftc= and =swift-frontend=, but no =swift-driver=,
+=swift-build= or =swift-package=.  Every =swiftc= invocation warns:
+
+#+begin_src text
+warning: using (deprecated) legacy driver, Swift installation does not contain swift-driver
+warning: unable to perform implicit import of "_Concurrency" module: no such module found
+#+end_src
+
+A trivial Foundation program fails immediately:
+
+#+begin_src sh
+$ printf 'import Foundation\nprint("hi")\n' > /tmp/f.swift
+$ /gnu/store/mcngddjckzv3ndvqwlkrmlr4z3v8gqp4-swift-6.2/bin/swiftc /tmp/f.swift
+/tmp/f.swift:1:8: error: no such module 'Foundation'
+#+end_src
+
+A trivial async program does not just fail to link; it crashes the compiler:
+
+#+begin_src sh
+$ printf 'func f() async -> Int { 1 }\nprint(await f())\n' > /tmp/a.swift
+$ swiftc /tmp/a.swift
+swift-frontend: .../lib/SILGen/SILGenFunction.cpp:1442:
+  Assertion `swiftJobRunFuncDecl && "Failed to find swift_job_run function decl"' failed.
+#+end_src
+
+Even =import Glibc= needs extra help: the compiler needs
+=linux-libre-headers= on its include path, and linking needs =clang= from
+=swift-llvm= plus the binutils =ld=.  The package is therefore not a
+self-contained Swift toolchain, let alone a SwiftPM environment.
+
+The package's own arguments document the trade-off: it builds with
+=-DSWIFT_ENABLE_SWIFT_IN_SWIFT=FALSE= because the bootstrap compiler is Swift
+5.7.3, and its comment lists the Swift-based compiler components and macro
+implementations that are lost as a result.  The installed tree also lacks
+=_Concurrency= and =_StringProcessing=; whatever the exact build step, this
+is not a complete Swift toolchain.
+
+* What the bridge needs
+
+=Package.swift= declares =NIOCore= and =NIOPosix= from swift-nio, the =Crypto=
+product from swift-crypto, =DequeModule= from swift-collections, =Atomics=
+from swift-atomics, =SystemPackage= from swift-system, and =SwiftASN1= from
+swift-asn1.  The app's own imports are Foundation, FoundationNetworking,
+Glibc, Crypto, CryptoKit, NIOCore, NIOPosix, BridgeCore, ClientCore and
+CBridgePOSIX.  Foundation and async/await are used throughout.
+
+Upstream's Nix recipe (=nix/package.nix=) uses nixpkgs' =swift= and =swiftpm=
+plus =swiftpm2nix=.  The latter writes the six checkouts into
+=.build/checkouts= and the corresponding =.build/workspace-state.json=, then
+the build runs:
+
+#+begin_src text
+swift build -c release --disable-sandbox --skip-update
+#+end_src
+
+and installs =bin/autolith-bridge=, the
+=AutolithCompanion_AutolithBridge.resources= directory beside it, and
+=LICENSE=.  That is the shape a Guix package should have.
+
+* Why vendoring the six origins is not enough
+
+Vendoring the six source trees is necessary but does not address the blocker:
+
+1. Guix's Swift package has no =swift build= or =swift package=, so there is
+   no SwiftPM to consume =.build/checkouts= or =workspace-state.json=.
+2. Even a hand-written =swiftc= build of the package would still need
+   Foundation, FoundationNetworking and =_Concurrency=, which the toolchain
+   does not install.  Rewriting the app to avoid Foundation would be a fork,
+   not a package.
+3. SwiftCrypto's BoringSSL C target can in principle be compiled with
+   =swift-llvm='s clang, and the six origins are small enough to vendor, but
+   that does not replace the missing core libraries or SwiftPM.
+
+* What would unblock it
+
+1. Make the Guix Swift toolchain complete: install Foundation,
+   FoundationNetworking, the Swift =Dispatch= module, XCTest,
+   =_Concurrency=, =_StringProcessing= and =swift-driver= alongside
+   =swiftc=.  On Linux this means building the matching
+   swift-corelibs-foundation / swift-corelibs-libdispatch / XCTest sources
+   with the same Swift, and enabling the Swift-in-Swift components (or
+   bootstrapping from a newer compiler).
+2. Package SwiftPM (=swift-package-manager=) or provide a Guix build system
+   that evaluates =Package.swift= and populates =.build/checkouts= from
+   origins.  The upstream =swiftpm2nix= setup is the reference.
+3. Add the six origins with the revisions and hashes above, build the
+   =autolith-bridge= product in release mode, and install =bin/autolith-bridge=,
+   the resource bundle and =LICENSE=.
+4. Test the package with =guix build -L . autolith-bridge= and the
+   startup/token check from upstream's =installCheckPhase=.
+
+* Current status and reproducer
+
+No =autolith-bridge= package exists, by design:
+
+#+begin_src sh
+$ guix build -L . --dry-run autolith-bridge
+guix build: error: autolith-bridge: unknown package
+#+end_src
+
+The module itself loads and exposes the reason:
+
+#+begin_src sh
+$ cat > /tmp/load-bridge.scm <<'EOF'
+(use-modules (catallactics autolith-bridge))
+(display autolith-bridge-blocker)
+(newline)
+EOF
+$ guix repl -L . /tmp/load-bridge.scm
+Guix's swift 6.2 package lacks Foundation, the Dispatch Swift module,
+_Concurrency, XCTest, swift-driver and SwiftPM; autolith-bridge needs them.
+See docs/autolith-bridge.org.
+#+end_src
+
+The channel can ship without it.  When a complete toolchain and SwiftPM are
+available, replace the blocker note with the real package and delete this
+document.

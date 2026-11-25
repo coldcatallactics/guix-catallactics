@@ -1,0 +1,196 @@
+#+TITLE: guix-catallactics
+#+SUBTITLE: coldcatallactics' personal GNU Guix channel
+
+This is my personal Guix channel. It contains packages I use that are not in
+Guix or Nonguix, or where I need a newer version. It is curated, not a general
+AI channel and not a dumping ground. There is no stability guarantee; packages
+may be added, changed, or removed.
+
+It is not affiliated with GNU Guix, Nonguix, Lambda Symbolics, LearnHarness, or
+any upstream project.  All packages currently target =x86_64-linux=.
+
+* Packages
+
+| Package            | Kind                         | Upstream                    | License    |
+|--------------------+------------------------------+-----------------------------+------------|
+| =autolith-bin=     | vendor release binary        | lambda-symbolics/autolith    | ISC        |
+| =learnharness-bin= | vendor Debian release        | amosblomqvist/learnharness   | AGPL-3.0   |
+| =xenolith=         | source (site tree + launcher)| coldcatallactics/xenolith    | ISC        |
+| =autolith-bridge=  | blocked (Swift toolchain)     | chakanysystems/autolith-remote | Apache-2.0 |
+| =opencode-bin=     | vendor release binary        | anomalyco/opencode          | MIT        |
+
+Notes:
+
+- =autolith-bin= is a vendor binary because Autolith's source build needs its
+  full SBCL/Quicklisp closure, which is not packaged in Guix yet. A source
+  package can replace it later; the name will then become =autolith= and
+  =autolith-bin= will be deprecated.  See =docs/autolith-source.org=.  The
+  first launch builds recovery/active images under =XDG_DATA_HOME/autolith=
+  and can take a minute.
+- =learnharness-bin= is a vendor Debian release. It can become a source
+  package once Nonguix carries Electron 44 (it currently stops at 41) and the
+  npm dependency tree is tractable. Until then, the =.deb= is the honest
+  artifact.  This package uses stock Mesa/libglvnd; on an NVIDIA system where
+  stock EGL fails, use the fleet's local package (which pairs Nonguix's
+  patched Mesa with the driver) or a package transformation.
+- =autolith-bridge= is **not shipped in v1**.  Guix's Swift 6.2 package is
+  compiler-only: it has no Foundation, Dispatch Swift module, _Concurrency,
+  XCTest, swift-driver or SwiftPM, so the bridge cannot build.  See
+  =docs/autolith-bridge.org= for the evidence and the six dependency hashes.
+  The Nix wrapper in my fleet remains the fallback until Guix's Swift
+  toolchain is complete.
+- =opencode-bin= is a vendor release; opencode is a Bun application and has no
+  practical Guix source build today.  See =docs/binary-packages.org= for the
+  shared policy on vendor packages.
+
+Not in v1, but possible later: =ctd-themes=, =nushell-bin=, =aui= / =unslop=
+(blocked on an upstream LICENSE file and release tarball), and other packages I
+actually use.
+
+* Install
+
+Add this channel to =~/.config/guix/channels.scm=. Nonguix is a declared
+dependency, so only this entry is needed:
+
+#+begin_src scheme
+(cons (channel
+        (name 'catallactics)
+        (url "https://github.com/coldcatallactics/guix-catallactics")
+        (branch "main")
+        ;; Fill these in after running scripts/init-channel-auth.sh and making
+        ;; the signed introduction commit.  Until then, omit the introduction
+        ;; and pin the commit you trust.
+        (introduction
+         (make-channel-introduction
+          "INTRO_COMMIT"
+          (openpgp-fingerprint "FINGERPRINT"))))
+      %default-channels)
+#+end_src
+
+Then:
+
+#+begin_src sh
+guix pull
+guix install autolith-bin learnharness-bin xenolith opencode-bin
+#+end_src
+
+=autolith-bridge= is not installable from this channel yet; see the note
+above and =docs/autolith-bridge.org=.
+
+* Substitutes
+
+CI builds the channel's packages on GitHub Actions and publishes signed
+substitutes. GitHub Pages hosts the small metadata (=nix-cache-info=,
+=.narinfo= files and the public key); the nar archives themselves are GitHub
+Release assets because they are larger than GitHub Pages' 100 MB per-file
+limit. Each CI run creates a unique =substitutes-...= release. The narinfo
+=URL:= fields point at that release; they are outside the signed part of the
+narinfo, so signatures remain valid.
+
+#+begin_src sh
+curl -fsSL https://coldcatallactics.github.io/guix-catallactics/pubkey \
+  | sudo guix archive --authorize
+#+end_src
+
+Keep your existing substitute URLs, including Nonguix's, and add the mirror:
+
+#+begin_src sh
+guix install \
+  --substitute-urls="https://ci.guix.gnu.org https://bordeaux.guix.gnu.org https://substitutes.nonguix.org https://coldcatallactics.github.io/guix-catallactics" \
+  autolith-bin learnharness-bin xenolith opencode-bin
+#+end_src
+
+To make it permanent, add that URL to the =guix= service's
+=substitute-urls= on Guix System (or =/etc/guix/guix.conf= on a foreign
+distribution). Check availability with:
+
+#+begin_src sh
+guix weather --substitute-urls="https://coldcatallactics.github.io/guix-catallactics" \
+  autolith-bin learnharness-bin xenolith opencode-bin
+#+end_src
+
+The mirror is optional. Without it, Guix builds the packages locally; the
+vendor packages only need unpacking and patching.
+
+The substitute URL is the Pages URL, not the release URL: Guix asks Pages for
+=<hash>.narinfo=, then follows the absolute =URL:= inside it to the GitHub
+release asset for the nar. See =docs/mirror.org= for the size measurements,
+tag scheme and cache-lifetime notes.
+
+* Trust
+
+Like any Guix channel, the channel's Scheme code is evaluated by =guix pull=.
+Pin the commit you trust, and authorize the substitute key only if you trust
+this repository. The packages are personal, not audited by GNU Guix.
+
+* Authentication
+
+All commits on =main= are signed. The channel introduction is the signed
+commit that first added =.guix-authorizations=; the README will record its hash
+and fingerprint once the key is created.
+
+- =scripts/init-channel-auth.sh= generates a dedicated OpenPGP key, writes
+  =.guix-authorizations=, and prints the orphan =keyring= branch instructions.
+- Use =git commit -S= for every commit on =main=.
+- Do not use the GitHub web editor or the "Merge pull request" button on
+  =main=: those create unsigned commits. Merge or rebase locally with =-S=.
+- The orphan =keyring= branch contains the exported public key; do not delete
+  it.
+- Verify the checkout with
+  =guix git authenticate <INTRO_COMMIT> <FINGERPRINT>= before pushing.
+
+* First-time setup (before the first push)
+
+1. Run =./scripts/init-channel-auth.sh= to create the channel signing key and
+   =.guix-authorizations=.
+2. Make the signed introduction commit, then create the orphan =keyring=
+   branch as the script prints.
+3. Generate the separate Guix substitute key, commit its public half as
+   =.guix-substitutes.pub=, and store the private half as the
+   =GUIX_SIGNING_KEY= Actions secret.  See =docs/keys.org=.
+4. Enable GitHub Pages from the =gh-pages= branch.  The CI creates the
+   substitute release with the automatic =GITHUB_TOKEN=; there are no
+   object-store secrets.  See =docs/mirror.org=.
+5. Push and run the =build= workflow with =workflow_dispatch=.
+
+The exact commands are in =docs/first-push.org=.
+
+* AI assistance
+
+Some packages here are AI harnesses or AI-related applications. Their recipes
+are developed with AI assistance and reviewed and tested by a human. They are
+not intended for submission to GNU Guix, which does not accept LLM-written
+contributions. Upstream licenses are unchanged.
+
+* Building locally
+
+#+begin_src sh
+cd ~/projects/guix-catallactics
+guix build -L . autolith-bin
+guix build -L . learnharness-bin
+guix build -L . xenolith
+guix build -L . opencode-bin
+./tests/check-static.sh
+./tests/build-all.sh
+#+end_src
+
+The CI workflow is in =.github/workflows/build.yml=. It pins Guix and Nonguix
+in =tests/channels-lock=, builds every package, runs smoke tests, bakes
+substitutes and deploys them to the =gh-pages= branch. The consumer job then
+installs the packages from the published mirror on a fresh runner.
+
+* Keys and CI setup
+
+See =docs/keys.org=. The short version:
+
+- Channel commits use a dedicated OpenPGP key; the public key lives on the
+  orphan =keyring= branch.
+- Substitutes use a separate Guix Ed25519 key; the public half is committed as
+  =.guix-substitutes.pub=, the private half is the =GUIX_SIGNING_KEY= GitHub
+  Actions secret.
+- Never commit private key material.
+
+* License
+
+The channel code is GPL-3.0-or-later; see =COPYING=. Packaged software keeps
+its upstream license.

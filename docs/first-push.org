@@ -1,0 +1,97 @@
+#+TITLE: First push checklist
+
+These steps are one-time.  The working tree is currently uncommitted on
+purpose: the first commit must be signed.
+
+* 1. Channel signing key and introduction
+
+#+begin_src sh
+cd ~/projects/guix-catallactics
+./scripts/init-channel-auth.sh
+# Enter the channel key name/email and passphrase.
+# The script writes .guix-authorizations and prints the fingerprint.
+#+end_src
+
+Make the signed introduction commit, then create the orphan keyring branch:
+
+#+begin_src sh
+git add .
+git commit -S -m "channel: initial import with authenticated introduction"
+git rev-parse HEAD          # record as INTRO_COMMIT
+# Put INTRO_COMMIT and the fingerprint into README.org.
+
+git switch --orphan keyring
+cp .git/channel-keyring/<FINGERPRINT>.key .
+git add <FINGERPRINT>.key
+git commit -S -m "keyring: add channel signing key"
+git push -u origin keyring
+git switch main
+#+end_src
+
+Every later commit on =main= must use =git commit -S=.  Do not use the
+GitHub web editor or web merge on =main=.
+
+* 2. GitHub repository
+
+#+begin_src sh
+gh repo create coldcatallactics/guix-catallactics \
+  --public --source=. --remote=origin --push
+#+end_src
+
+Set the repository variables used by CI:
+
+#+begin_src sh
+gh variable set GUIX_AUTH_COMMIT --body "$(git rev-parse HEAD)"
+gh variable set GUIX_AUTH_SIGNER --body "<FINGERPRINT>"
+#+end_src
+
+The substitute release URL is computed by the workflow; there is no
+=NAR_BASE_URL= variable to set.
+
+* 3. Substitute signing key
+
+Generate a dedicated Guix key on a disposable machine/VM with an empty
+=/etc/guix=:
+
+#+begin_src sh
+sudo guix archive --generate-key
+# copy /etc/guix/signing-key.pub to .guix-substitutes.pub
+# copy /etc/guix/signing-key.sec to the GUIX_SIGNING_KEY Actions secret
+#+end_src
+
+#+begin_src sh
+cp /path/to/signing-key.pub .guix-substitutes.pub
+git add .guix-substitutes.pub
+git commit -S -m "channel: add substitute signing public key"
+gh secret set GUIX_SIGNING_KEY < /path/to/signing-key.sec
+#+end_src
+
+Do not reuse the host daemon's key, and never commit the private half.
+
+* 4. GitHub Pages
+
+Enable GitHub Pages from the =gh-pages= branch (root).  The workflow creates a
+unique =substitutes-...= GitHub Release for the nar assets using the automatic
+=GITHUB_TOKEN=; there are no object-store secrets to configure.
+
+* 5. First CI run
+
+#+begin_src sh
+gh workflow run build
+gh run watch
+#+end_src
+
+The =packages= job builds and smoke-tests everything, bakes narinfos, creates
+the substitute release and uploads the nars, then deploys the Pages metadata.
+The =substitutes= job installs a package from the published mirror on a fresh
+runner.
+
+* 6. Local verification
+
+#+begin_src sh
+./tests/check-static.sh
+GUIX_BUILT_PATHS=/tmp/built-paths ./tests/build-all.sh
+#+end_src
+
+The first =autolith-bin= start builds its local recovery/active images and can
+take a minute; the smoke test uses the fast release probe instead.

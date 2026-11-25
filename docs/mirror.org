@@ -1,0 +1,65 @@
+#+TITLE: Substitute mirror: GitHub Pages + GitHub Releases
+
+GitHub Pages cannot serve this channel's nar files. Measured with
+=guix archive --export | gzip -1=:
+
+| Package          | Nar size |
+|------------------+----------|
+| autolith-bin     | 148 MiB  |
+| learnharness-bin | 202 MiB  |
+| opencode-bin     | 133 MiB  |
+| xenolith         | <1 MiB   |
+
+GitHub Pages has a hard 100 MB per-file limit (and a soft ~1 GB site limit).
+GitHub Releases allows up to 2 GiB per asset with no total-size or bandwidth
+limit, so it is the mirror's nar store.
+
+* Design
+
+- GitHub Pages (=gh-pages=) hosts:
+  - =nix-cache-info=
+  - =<hash>.narinfo=
+  - =pubkey=
+- GitHub Releases hosts the nar files as assets.
+- Each publish run creates a unique tag, for example:
+
+  #+begin_example
+  substitutes-20261125-abc123def456-1234567890-1
+  #+end_example
+
+- =tests/publish-substitutes.sh= bakes with =guix publish=, writes the
+  narinfos to =.substitute-site=, writes the nars to =.substitute-nars=, and
+  rewrites each narinfo's =URL:= field to:
+
+  #+begin_example
+  https://github.com/coldcatallactics/guix-catallactics/releases/download/<tag>/<nar-basename>
+  #+end_example
+
+- Rewriting =URL:= does not invalidate the signature: Guix signs the
+  normative fields first and appends =URL=/=Compression=/=FileSize= after the
+  signature (see =guix/scripts/publish.scm=, =narinfo-string=).
+- The CI workflow uploads the nars to the release *before* deploying the
+  narinfos to Pages, so a client never sees a narinfo whose URL is not live.
+
+* Storage and cache lifetime
+
+- Each build stages roughly 483 MiB of nars (plus the small Pages metadata).
+- GitHub's release documentation says there is no total-size or bandwidth
+  limit for release assets; each asset must be under 2 GiB.
+- Keep old releases: clients cache narinfos, and an old narinfo must keep
+  resolving to a live nar.  Guix's narinfo cache TTL is about five weeks, so
+  keep at least that long.
+- Prune old releases manually or with a scheduled workflow when the list gets
+  unwieldy.  Do not delete a release that still backs a cached narinfo.
+
+* No extra credentials
+
+The workflow uses the automatic =GITHUB_TOKEN= (=contents: write=) to create
+the release and upload assets.  There are no other object-store secrets.
+Users need only the channel URL and the substitute public key.
+
+* Local dry run
+
+=tests/publish-substitutes.sh= can be run with a fake =NAR_BASE_URL= and
+=ALLOW_NO_UPLOAD=1= to inspect =.substitute-site=/=.substitute-nars= without
+publishing.  CI publish runs use the real release URL.

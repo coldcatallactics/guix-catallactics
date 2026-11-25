@@ -1,0 +1,26 @@
+#+TITLE: Why Autolith is v1 =autolith-bin=
+
+Autolith's upstream Nix package is a real source build, but it is not a small
+Guix package:
+
+- It needs an SBCL whose version matches upstream's pinned interpreter.
+- =qlfile= / =qlfile.lock= pull in roughly 15 Quicklisp systems and about 50
+  git dependencies, many from the Lambda Symbolics organisation.  The Nix
+  package in =nix/package.nix= builds each ASDF system separately, plus native
+  C libraries (colorlisp, fff, defingerprinter and friends).
+- Guix has SBCL and many Common Lisp libraries, but not this closure.  A Guix
+  build cannot fetch Quicklisp at build time, so the closure would have to be
+  packaged or vendored first.
+- The upstream release also ships a self-contained Linux binary image, which
+  is what =autolith-bin= uses.
+
+The path to a source package is therefore:
+
+1. Package the missing =qlfile= git dependencies as =sbcl-*= Guix packages, or
+   vendor the ASDF tree as a fixed-output source.
+2. Build the native components against those packages.
+3. Build the image with the pinned SBCL and install the launcher/image.
+4. Rename =autolith-bin= to a deprecated alias and introduce =autolith=.
+
+Until then, =autolith-bin= is the honest artifact.  It is hash-pinned and
+installed from the upstream release, not compiled locally.
