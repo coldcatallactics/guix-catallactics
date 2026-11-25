@@ -161,11 +161,30 @@ jobs:
             echo "::error::no nar files were staged"
             exit 1
           }
-          gh release create "$TAG" \
-            --title "Guix substitutes $TAG" \
-            --notes "Signed substitute nars for the catallactics channel." \
-            --prerelease
-          gh release upload "$TAG" "${nars[@]}"
+          # The Releases API occasionally returns a transient 500.  Retry,
+          # and tolerate a release that was created before the error.
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            for attempt in 1 2 3 4 5; do
+              if gh release create "$TAG" \
+                   --title "Guix substitutes $TAG" \
+                   --notes "Signed substitute nars for the catallactics channel." \
+                   --prerelease; then
+                break
+              fi
+              echo "release create failed (attempt $attempt), retrying" >&2
+              sleep 15
+            done
+          fi
+          gh release view "$TAG" >/dev/null
+          for attempt in 1 2 3 4 5; do
+            if gh release upload "$TAG" --clobber "${nars[@]}"; then
+              break
+            fi
+            echo "release upload failed (attempt $attempt), retrying" >&2
+            sleep 15
+          done
+          gh release view "$TAG" --json assets \
+            --jq '.assets | length' | grep -q .
 
       - name: Deploy narinfo mirror to gh-pages
         if: github.event_name != 'pull_request'
