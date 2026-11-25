@@ -62,8 +62,9 @@ dependency, so only this entry is needed:
         ;; and pin the commit you trust.
         (introduction
          (make-channel-introduction
-          "INTRO_COMMIT"
-          (openpgp-fingerprint "FINGERPRINT"))))
+          "7f51994faac715329be538f062f78c103d6aff5b"
+          (openpgp-fingerprint
+           "8F4C FF0C 4E3B 4D08 7A02  9F64 35B7 E555 ADED 2A4F"))))
       %default-channels)
 #+end_src
 
@@ -137,7 +138,8 @@ and fingerprint once the key is created.
 - The orphan =keyring= branch contains the exported public key; do not delete
   it.
 - Verify the checkout with
-  =guix git authenticate <INTRO_COMMIT> <FINGERPRINT>= before pushing.
+  =guix git authenticate 7f51994faac715329be538f062f78c103d6aff5b
+  8F4CFF0C4E3B4D087A029F6435B7E555ADED2A4F= before pushing.
 
 * First-time setup (before the first push)
 
