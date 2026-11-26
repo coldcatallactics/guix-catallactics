@@ -1,0 +1,21 @@
+#+TITLE: Runtime notes
+
+These are observed configurations, not guarantees. A package can start on one
+graphics stack and fail on another; record the exact evidence here instead of
+turning a packaging choice into a runtime claim.
+
+* LearnHarness
+
+=tests/smoke/learnharness-bin.sh= exercises the wrapper and the bundled server
+(and accepts a version/server-startup result), but it does not open a window.
+The window/EGL path is verified manually. A headless Wayland runtime test is
+future work; it would still not reproduce proprietary NVIDIA behaviour.
+
+| Date       | GPU / driver               | Session | Mesa                | Package                            | Result                        |
+|------------+----------------------------+---------+---------------------+------------------------------------+-------------------------------|
+| 2026-11-26 | NVIDIA 580.x (proprietary) | Wayland | 26.2.6 (stock Guix) | =learnharness-bin= 0.7.0 (channel) | Electron starts; window opens |
+
+The channel package deliberately uses stock Mesa/libglvnd. If a different
+setup reports =EGL_NOT_INITIALIZED=, use a package transformation or a local
+NVIDIA Mesa pairing; do not make the public package depend on one machine's
+driver stack.

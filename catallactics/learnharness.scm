@@ -10,7 +10,10 @@
 ;;; The build patches the ELF interpreter, supplies the runtime libraries
 ;;; through the wrapper, and installs the desktop entry and icon.  Stock Mesa
 ;;; and libglvnd are used so the package is independent of any machine's
-;;; graphics stack.
+;;; graphics stack.  That stock-Mesa build was verified on 2026-11-26 on the
+;;; NVIDIA 580 Wayland session (Electron started and opened its window); a
+;;; setup that reports EGL_NOT_INITIALIZED needs a transformation or a local
+;;; NVIDIA pairing.  See docs/runtime.org.
 ;;;
 ;;; The upstream updater installs the next .deb through dpkg/apt.  A Guix
 ;;; package owns its version, so the feed metadata is removed: electron-updater

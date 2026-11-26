@@ -41,6 +41,9 @@ Do not use the host's existing daemon key.
 
 - Copy the public key to the repository as =.guix-substitutes.pub= and commit
   it.
+- The checked-in =.guix-substitutes.pub= is the rotation anchor because it is
+  covered by the signed channel history. Tell users to compare the Pages
+  =pubkey= with it before authorizing.
 - Store the private key text as the GitHub Actions secret =GUIX_SIGNING_KEY=.
   Do not commit it, print it, or paste it into logs.
 - The CI workflow passes it to =tests/publish-substitutes.sh=; =guix publish=
@@ -73,3 +76,6 @@ git commit -S -m "ci: update channel pins"
 #+end_src
 
 Run the full workflow once with =workflow_dispatch= after changing the lock.
+Both CI jobs run =tests/check-channel-pins.sh= after the pull and fail if the
+running Guix or Nonguix commit differs from this file, or if =guix= still
+resolves to the installer's older profile.

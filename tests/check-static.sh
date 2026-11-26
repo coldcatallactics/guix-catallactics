@@ -2,7 +2,8 @@
 # Cheap checks that catch the failures users hit before a build starts:
 #
 #   * .guix-channel parses (a parenthesis slip there breaks every `guix pull');
-#   * every .scm on Guile's module load path is a real module;
+#   * every .scm on Guile's module load path is a real module whose
+#     define-module name matches its path under the channel root;
 #   * every package module is `guix style' clean (STYLE_ADVISORY=1 downgrades
 #     the formatting comparison to a warning);
 #   * every define-public under catallactics/ resolves with --dry-run.
@@ -59,21 +60,49 @@ then
 fi
 
 # --- module shape -----------------------------------------------------------
-# `guix pull' compiles every .scm file under the channel's directory (or under
-# the repository root when .guix-channel declares no (directory ...)).  A
-# non-module Scheme file there breaks the pull for every user.  The CI channel
-# lock is deliberately extensionless (tests/channels-lock), so this scan never
-# sees it; `guix pull -C' loads it with #:isolated? #t, where define-module is
-# unavailable.
-module_root=catallactics
-if ! grep -qE '\(directory[[:space:]]+"' .guix-channel; then
-  module_root=.
+# `guix pull' compiles every .scm file under the channel's `directory' (or
+# under the repository root when `.guix-channel' omits it).  Parse that field
+# instead of assuming catallactics/: with (directory "/") the module root is
+# the repository root, and each file's define-module name must match its path
+# relative to that root.  A mismatch makes `guix pull' look under the wrong
+# name and breaks the channel for every user.
+directory_script="$tmp/channel-directory.scm"
+cat >"$directory_script" <<'EOF'
+(use-modules (guix channels))
+(define read-meta (@@ (guix channels) read-channel-metadata))
+(define meta (call-with-input-file ".guix-channel" read-meta))
+(display ((@@ (guix channels) channel-metadata-directory) meta))
+(newline)
+EOF
+if ! channel_directory=$(guix repl -q "$directory_script" | tail -n1); then
+  fail "could not read the channel directory from .guix-channel"
 fi
+case "$channel_directory" in
+  /) module_root=. ;;
+  /*) module_root=".${channel_directory}" ;;
+  *) fail "unexpected channel directory: '$channel_directory'" ;;
+esac
 
-echo "==> every .scm on the module path is a module (root: $module_root)"
+normalize_module_name() {
+  tr -s '[:space:]' ' ' <<<"$1" | sed -e 's/^ //' -e 's/ $//'
+}
+
+echo "==> every .scm on the module path is a module (root: $channel_directory)"
 while IFS= read -r f; do
-  grep -qE '^\(define-module([[:space:]]|$)' "$f" && continue
-  fail "$f is a Scheme file but not a Guile module"
+  rel=${f#./}
+  if [ "$module_root" != "." ]; then
+    rel=${rel#"${module_root#./}/"}
+  fi
+  stem=${rel%.scm}
+  expected=$(normalize_module_name "(${stem//\// })")
+
+  actual=$(sed -n 's/^[[:space:]]*(define-module[[:space:]]*\(([^)]*)\).*/\1/p' \
+    "$f" | head -n1)
+  [ -n "$actual" ] ||
+    fail "$f is a Scheme file but not a Guile module"
+  actual=$(normalize_module_name "$actual")
+  [ "$actual" = "$expected" ] ||
+    fail "$f defines $actual but its path under $channel_directory requires $expected"
 done < <(find "$module_root" -path ./.git -prune -o -type f -name '*.scm' -print)
 
 # --- style ------------------------------------------------------------------

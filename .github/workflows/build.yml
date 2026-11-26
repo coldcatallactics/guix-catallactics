@@ -61,15 +61,25 @@ jobs:
         id: release
         if: github.event_name != 'pull_request'
         run: |
+          set -euo pipefail
           tag="substitutes-$(date -u +%Y%m%d)-${GITHUB_SHA::12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}"
+          mapfile -t pins < <(./tests/check-channel-pins.sh --print)
+          [ ${#pins[@]} -eq 2 ] || {
+            echo "::error::could not read the channel pins"
+            exit 1
+          }
           {
             echo "tag=$tag"
             echo "nar_base_url=$url"
+            echo "guix_pin=${pins[0]}"
+            echo "nonguix_pin=${pins[1]}"
           } >> "$GITHUB_OUTPUT"
           echo "NAR_BASE_URL=$url" >> "$GITHUB_ENV"
           echo "release tag: $tag"
           echo "nar base:    $url"
+          echo "guix pin:    ${pins[0]}"
+          echo "nonguix pin: ${pins[1]}"
 
       # Download cache only: /gnu/store must not be restored from a cache,
       # because the store database would disagree with the restored files.
@@ -112,6 +122,12 @@ jobs:
       # build and substitute test use the pinned Guix, not brix's older one.
       - name: Use the pulled Guix
         run: echo "$HOME/.config/guix/current/bin" >> "$GITHUB_PATH"
+
+      # $GITHUB_PATH only affects later steps, so verify the pinned profile in
+      # its own step.  This catches an installer profile that still shadows
+      # the pull and would publish substitutes for the wrong derivations.
+      - name: Verify pinned channels
+        run: ./tests/check-channel-pins.sh
 
       # If the repository has a .guix-authorizations file and the introduction
       # is configured (GUIX_AUTH_COMMIT/GUIX_AUTH_SIGNER repository variables),
@@ -159,6 +175,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.release.outputs.tag }}
+          GUIX_PIN: ${{ steps.release.outputs.guix_pin }}
+          NONGUIX_PIN: ${{ steps.release.outputs.nonguix_pin }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -167,13 +185,14 @@ jobs:
             echo "::error::no nar files were staged"
             exit 1
           }
+          notes=$(printf 'Signed substitute nars for the catallactics channel.\n\nPinned channels:\n  Guix     %s\n  Nonguix  %s\n' "$GUIX_PIN" "$NONGUIX_PIN")
           # The Releases API occasionally returns a transient 500.  Retry,
           # and tolerate a release that was created before the error.
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             for attempt in 1 2 3 4 5; do
               if gh release create "$TAG" \
                    --title "Guix substitutes $TAG" \
-                   --notes "Signed substitute nars for the catallactics channel." \
+                   --notes "$notes" \
                    --prerelease; then
                 break
               fi
@@ -274,6 +293,9 @@ jobs:
       # root's pre-pull profile, not the non-root profile just pulled.
       - name: Use the pulled Guix
         run: echo "$HOME/.config/guix/current/bin" >> "$GITHUB_PATH"
+
+      - name: Verify pinned channels
+        run: ./tests/check-channel-pins.sh
 
       - name: Test substitute install from the mirror
         env:

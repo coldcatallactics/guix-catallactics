@@ -4,6 +4,11 @@ This is `guix-catallactics`, a personal public GNU Guix channel.
 
 - Channel name: `catallactics`; modules live under `catallactics/` with names
   like `(catallactics autolith)`.
+- Module root: `.guix-channel` must keep `(directory "/")` because the module
+  names are `(catallactics …)`. Pointing it at `catallactics/` makes
+  `guix pull` look for `(autolith …)`, `(opencode …)`, etc. and breaks the
+  channel. `tests/check-static.sh` enforces the path/name match; do not
+  "tidy" the directory field.
 - `.guix-channel` declares Nonguix as a dependency. Do not add a second
   channel entry for Nonguix in user instructions.
 - Packages: `autolith-bin`, `learnharness-bin`, `xenolith`, `opencode-bin`.

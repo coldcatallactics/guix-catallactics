@@ -30,9 +30,12 @@ Notes:
 - =learnharness-bin= is a vendor Debian release. It can become a source
   package once Nonguix carries Electron 44 (it currently stops at 41) and the
   npm dependency tree is tractable. Until then, the =.deb= is the honest
-  artifact.  This package uses stock Mesa/libglvnd; on an NVIDIA system where
-  stock EGL fails, use the fleet's local package (which pairs Nonguix's
-  patched Mesa with the driver) or a package transformation.
+  artifact.  This package uses stock Mesa/libglvnd so it stays independent of
+  any machine's graphics stack. It was verified on 2026-11-26 on the NVIDIA
+  580 Wayland session: Electron starts and opens its window. If Electron
+  reports =EGL_NOT_INITIALIZED= on another setup, use a local package
+  (Nonguix Mesa with the driver) or a package transformation; see
+  =docs/runtime.org=.
 - =autolith-bridge= is **not shipped in v1**.  Guix's Swift 6.2 package is
   compiler-only: it has no Foundation, Dispatch Swift module, _Concurrency,
   XCTest, swift-driver or SwiftPM, so the bridge cannot build.  See
@@ -66,6 +69,12 @@ dependency, so only this entry is needed:
       %default-channels)
 #+end_src
 
+Nonguix is pulled as a dependency, but the entry above places Catallactics
+before =%default-channels=. If package shadowing matters, list Nonguix
+explicitly before Catallactics; Guix resolves the declared dependency by name,
+so the explicit entry does not conflict. The minimal form above is enough
+otherwise.
+
 Then:
 
 #+begin_src sh
@@ -75,6 +84,15 @@ guix install autolith-bin learnharness-bin xenolith opencode-bin
 
 =autolith-bridge= is not installable from this channel yet; see the note
 above and =docs/autolith-bridge.org=.
+
+* Channel layout
+
+The modules are named =(catallactics …)= and live under =catallactics/=. The
+channel therefore uses =(directory "/")= in =.guix-channel=, which makes the
+repository root the module root. Do not "tidy" that to =(directory
+"catallactics")=: =guix pull= would then look for =(autolith …)=,
+=(opencode …)=, and so on, and break the channel. =tests/check-static.sh=
+enforces that every =.scm= file's =define-module= name matches its path.
 
 * Substitutes
 
@@ -88,8 +106,15 @@ narinfo, so signatures remain valid.
 
 #+begin_src sh
 curl -fsSL https://coldcatallactics.github.io/guix-catallactics/pubkey \
-  | sudo guix archive --authorize
+  -o /tmp/catallactics.pub
+# from a channel checkout, before authorizing:
+diff -u .guix-substitutes.pub /tmp/catallactics.pub
+sudo guix archive --authorize < /tmp/catallactics.pub
 #+end_src
+
+The checked-in =.guix-substitutes.pub= is covered by the signed channel
+history, so it is the rotation anchor: authorize only when the diff is empty.
+See =docs/keys.org= for the rotation procedure.
 
 Keep your existing substitute URLs, including Nonguix's, and add the mirror:
 
@@ -115,6 +140,25 @@ The substitute URL is the Pages URL, not the release URL: Guix asks Pages for
 =<hash>.narinfo=, then follows the absolute =URL:= inside it to the GitHub
 release asset for the nar. See =docs/mirror.org= for the size measurements,
 tag scheme and cache-lifetime notes.
+
+* Substitute compatibility
+
+Narinfos are keyed to the exact store path, which follows from the derivation.
+The mirror is built with the Guix and Nonguix commits in
+=tests/channels-lock=, and each release's notes record those pins. A consumer
+whose channels resolve to different derivations will not see a match: this is
+a pin mismatch, not necessarily a dead mirror, and =guix weather= showing 0%
+can mean exactly that.
+
+Package transformations and wrappers create new derivations and are therefore
+not covered by the published substitutes; only the base packages are. Pin the
+same Guix and Nonguix commits as the release, or build locally. Verify with:
+
+#+begin_src sh
+guix describe
+guix weather --substitute-urls="https://coldcatallactics.github.io/guix-catallactics" \
+  autolith-bin learnharness-bin xenolith opencode-bin
+#+end_src
 
 * Trust
 
@@ -178,7 +222,9 @@ guix build -L . opencode-bin
 
 The CI workflow is in =.github/workflows/build.yml=. It pins Guix and Nonguix
 in =tests/channels-lock=, builds every package, runs smoke tests, bakes
-substitutes and deploys them to the =gh-pages= branch. The consumer job then
+substitutes and deploys them to the =gh-pages= branch. Both the build and the
+consumer job verify that the running Guix matches the lock
+(="./tests/check-channel-pins.sh=") before using it. The consumer job then
 installs the packages from the published mirror on a fresh runner.
 
 * Keys and CI setup

@@ -41,6 +41,20 @@ limit, so it is the mirror's nar store.
 - The CI workflow uploads the nars to the release *before* deploying the
   narinfos to Pages, so a client never sees a narinfo whose URL is not live.
 
+* Compatibility
+
+Narinfos are keyed to the exact store path/derivation, not merely to the
+package name. The mirror is built with the Guix and Nonguix commits in
+=tests/channels-lock=; each release's notes record those pins. A consumer
+whose channels resolve to different derivations will not find a narinfo.
+=guix weather= showing 0% can therefore mean a pin mismatch, not a dead
+mirror.
+
+Package transformations and wrappers create new derivations and are not
+covered by the published substitutes; only the base packages are. To use the
+mirror, pin the same Guix/Nonguix commits as the release; otherwise Guix
+builds locally.
+
 * Storage and cache lifetime
 
 - Each build stages roughly 483 MiB of nars (plus the small Pages metadata).

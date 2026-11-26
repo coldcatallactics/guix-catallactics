@@ -230,3 +230,6 @@ echo "nonguix: $nonguix_commit"
 echo
 echo "Review the diff, then verify the pins resolve before committing:"
 echo "  guix pull -n --allow-downgrades -C $lock"
+echo "After pulling the new pins, verify the profile you are using:"
+echo "  guix pull --allow-downgrades -C $lock"
+echo "  ./tests/check-channel-pins.sh"
