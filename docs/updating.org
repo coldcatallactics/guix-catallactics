@@ -1,0 +1,129 @@
+#+TITLE: Updating packages and channel pins
+
+Two independent operations:
+
+- a **package version bump** changes one package module and does not move
+  =tests/channels-lock=;
+- a **channel pin bump** changes the Guix/Nonguix commits and can change every
+  derivation, so every package is rebuilt and republished.
+
+Do not mix them unless the package actually needs a newer Guix/Nonguix.
+
+* Before changing anything
+
+- Work in a clean checkout and use a signed commit:
+  #+begin_src sh
+  cd ~/projects/guix-catallactics
+  git status
+  guix shell gnupg -- git commit -S -m "…"
+  #+end_src
+- =scripts/check-upstream.sh= is a local, advisory check. It is not CI and it
+  does not edit files. =STRICT=1= makes it exit nonzero when an update exists.
+- The package name, upstream URL, and source layout are in the module; the
+  helper never guesses a URL.
+
+* Package version bump
+
+Pick the package and read its source URL from =catallactics/PACKAGE.scm=.
+For the vendor releases (=autolith-bin=, =learnharness-bin=,
+=opencode-bin=):
+
+1. Detect available updates (optional but recommended):
+   #+begin_src sh
+   ./scripts/check-upstream.sh
+   #+end_src
+2. Download the exact upstream artifact and hash it:
+   #+begin_src sh
+   store=$(guix download https://…/release.tar.gz)   # or the .deb
+   hash=$(guix hash "$store")                         # 52-char nix-base32
+   #+end_src
+3. Update the version and the first source hash in the package:
+   #+begin_src sh
+   ./scripts/bump-package.sh PACKAGE VERSION "$hash"
+   #+end_src
+   Use =--version-only PACKAGE VERSION= only when you are changing the version
+   without changing the source hash. The helper preserves the rest of the
+   module, validates that it still parses, and restores the file on failure.
+4. Build, smoke-test, and run the static checks:
+   #+begin_src sh
+   guix build -L . PACKAGE
+   ./tests/smoke/PACKAGE.sh "$(guix build -L . PACKAGE)"   # if present
+   ./tests/check-static.sh
+   #+end_src
+5. Commit and push:
+   #+begin_src sh
+   git add catallactics/PACKAGE.scm
+   guix shell gnupg -- git commit -S -m "PACKAGE: update to VERSION"
+   git push origin main
+   #+end_src
+
+CI rebuilds, runs the smoke test, publishes a new substitute release, and
+replaces the Pages narinfos. Old releases are kept for cached narinfos.
+
+**Xenolith is different.** It is a source package with no upstream tags:
+
+- edit =%xenolith-commit= to the new commit;
+- hash a checkout with =guix hash -x /path/to/checkout=;
+- update the hash with
+  =./scripts/bump-package.sh xenolith BASE-VERSION "$hash"=; pass the new base
+  version if upstream’s reported version changed;
+- the =git-version= commit suffix updates automatically from
+  =%xenolith-commit=;
+- build and run the xenolith smoke test as above.
+
+* Channel pin bump
+
+This moves the CI Guix/Nonguix commits. It is separate from package versions.
+
+1. Rewrite the pins:
+   #+begin_src sh
+   ./tests/update-channels-lock.sh
+   #+end_src
+   Use =--guix-commit SHA= or =--nonguix-commit SHA= to pin one side
+   deliberately. Never hand-edit the commit strings; introductions are trust
+   anchors and must not change.
+2. Review the diff and verify that the pins resolve:
+   #+begin_src sh
+   git diff tests/channels-lock
+   guix pull -n --allow-downgrades -C tests/channels-lock
+   #+end_src
+3. Pull the new pins into the current profile and verify what is running:
+   #+begin_src sh
+   guix pull --allow-downgrades -C tests/channels-lock
+   ./tests/check-channel-pins.sh
+   #+end_src
+   The check compares the running Guix and Nonguix commits with the lock. In
+   CI it also requires =guix= to resolve to the pulled profile.
+4. Commit and push:
+   #+begin_src sh
+   git add tests/channels-lock
+   guix shell gnupg -- git commit -S -m "ci: update channel pins"
+   git push origin main
+   #+end_src
+
+CI runs the pin check in both jobs and records the pins in the release notes.
+A pin bump can change dependency versions (Mesa, GTK, …), so substitutes are
+rebuilt even when no package version changed.
+
+* Consuming a channel bump
+
+The channel's own =tests/channels-lock= only controls CI. A consumer that
+pins this channel in its own configuration must update that pin and rebuild;
+the channel cannot do it remotely. In the fleet, the lock lives in
+=guix/channels-lock.scm= and:
+
+#+begin_src sh
+./rebuild.sh --update
+# review and commit guix/channels-lock.scm, then switch
+./rebuild.sh
+#+end_src
+
+=--bump-local= is unrelated: it bumps the fleet's local fallback packages, not
+the Catallactics channel.
+
+* When Autolith becomes a source package
+
+The Autolith dependency closure is pinned by upstream's =qlfile.lock=, not by
+the latest tag of each repository. Treat a new Autolith release as: new
+release → new lock → update the packaged dependencies to match that lock →
+full build/test. Do not follow individual dependency tips independently.

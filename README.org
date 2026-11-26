@@ -220,6 +220,9 @@ guix build -L . opencode-bin
 ./tests/build-all.sh
 #+end_src
 
+For the package-version and channel-pin bump procedures, see
+=docs/updating.org=. `make upstream` runs the advisory upstream check.
+
 The CI workflow is in =.github/workflows/build.yml=. It pins Guix and Nonguix
 in =tests/channels-lock=, builds every package, runs smoke tests, bakes
 substitutes and deploys them to the =gh-pages= branch. Both the build and the

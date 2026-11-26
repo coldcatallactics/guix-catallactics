@@ -25,7 +25,10 @@ This is `guix-catallactics`, a personal public GNU Guix channel.
   Ed25519 key signs substitute narinfos. Never commit private key material.
 - CI pins Guix and Nonguix in `tests/channels-lock`. Update it
   deliberately with `tests/update-channels-lock.sh`, never by hand-editing
-  prose.
+  prose. Before bumping a package or the channel pins, follow
+  `docs/updating.org`; `scripts/bump-package.sh` and
+  `tests/update-channels-lock.sh` are the supported entry points.
+  `scripts/check-upstream.sh` is advisory and local, not CI.
 - Tests and CI mirror the public packages; a new package needs a module, a
   smoke test under `tests/smoke/`, and a `news.txt` entry after it lands.
 - CI publishes small metadata to GitHub Pages and the nar archives to a
