@@ -107,6 +107,12 @@ jobs:
           guix pull --fallback --allow-downgrades -C tests/channels-lock
           guix describe
 
+      # brix-action puts root's pre-pull profile on PATH; the non-root
+      # `guix pull` above writes ~/.config/guix/current.  Put that first so the
+      # build and substitute test use the pinned Guix, not brix's older one.
+      - name: Use the pulled Guix
+        run: echo "$HOME/.config/guix/current/bin" >> "$GITHUB_PATH"
+
       # If the repository has a .guix-authorizations file and the introduction
       # is configured (GUIX_AUTH_COMMIT/GUIX_AUTH_SIGNER repository variables),
       # this authenticates the checkout.  Otherwise it reports what is missing
@@ -263,6 +269,11 @@ jobs:
         run: |
           guix pull --fallback --allow-downgrades -C tests/channels-lock
           guix describe
+
+      # Same reason as the packages job: brix-action's PATH entry points at
+      # root's pre-pull profile, not the non-root profile just pulled.
+      - name: Use the pulled Guix
+        run: echo "$HOME/.config/guix/current/bin" >> "$GITHUB_PATH"
 
       - name: Test substitute install from the mirror
         env:
